@@ -7,9 +7,12 @@ A high-performance vertical space shooter for the Raspberry Pi Pico 2W with a cl
 ## Features
 - **Fast 60 FPS Logic**: Optimized for the Pico 2W and the ST7789 display.
 - **State Machine Architecture**: Clean separation between MENU, PLAYING, GAME_OVER, and LEADERBOARD states.
+- **Parallax Starfield**: Three-layer background with varied speeds and rare decorative planets.
+- **Advanced Entities**: Multiple enemy types (Scouts, Tanks) and massive **Boss Battle** encounters.
+- **Power-up System**: Drop-based buffs including Triple Shot and Rapid Fire.
+- **Arcade Feedback**: Screen shake, combo multipliers (up to x10), and adaptive difficulty.
+- **Persistence**: HI-SCORE tracking using local JSON storage on the Pico.
 - **Double Buffering**: Flick-free rendering using MicroPython's `framebuf`.
-- **Cloud Leaderboard**: Send and fetch high scores using Google Cloud Functions and Firestore.
-- **Explosion Particles**: Smooth visual effects using custom particle system.
 
 ## Hardware Requirements
 - **Raspberry Pi Pico 2W**
@@ -24,70 +27,55 @@ A high-performance vertical space shooter for the Raspberry Pi Pico 2W with a cl
 3. Open `config.py` and update:
    - `WIFI_SSID`: Your Wi-Fi name.
    - `WIFI_PASSWORD`: Your Wi-Fi password.
-   - `CLOUD_SUBMIT_URL`: Your deployed GCP Function URL.
+   - `CLOUD_SUBMIT_URL`: Your deployed GCP Function URL (Optional for online sync).
 4. Upload `main.py`, `config.py`, and `st7789py.py` to your Pico using Thonny.
 
-### 2. Google Cloud Setup (Backend)
+### 2. Google Cloud Setup (Backend - Optional)
 1. **Firestore**: 
-   - Create a Google Cloud Project.
-   - Initialize Firestore in **Native Mode**.
+   - Create a Google Cloud Project and initialize Firestore in native mode.
    - Create a collection named `highscores`.
 2. **Cloud Functions**:
-   - Create a new **Cloud Run Function** (2nd Gen).
-   - Set the runtime to **Python 3.10+**.
-   - Use the code in `backend/main.py` and dependencies in `backend/requirements.txt`.
+   - Create a new Python Cloud Function using the code in `backend/`.
    - Set the Entry Point to `leaderboard_proxy`.
-   - **Crucial**: Ensure the function has the `Cloud Datastore User` role for its Service Account so it can write to Firestore.
-   - Allow **Unauthenticated invocations** (ingress: all) to make it publicly accessible for the Pico.
+   - Allow **unauthenticated invocations** for public access.
 
 ## Controls
 - **Joystick**: Move ship
-- **Key A**: Fire Bullet
+- **Key A**: Fire Bullet / Select
 - **Key B**: Start Game
-- **Game Over**: Use Up/Down/Left/Right to enter your initials, then Key A to submit.
+- **Game Over**: Use directionals to enter initials, then Key A to submit.
 
 ## License
 MIT
 
 ---
 
-## Technical Architecture & Walkthrough 👾
+## Technical Architecture & Walkthrough 🕹️
 
 ### 🎮 1. MicroPython Game Engine
-The heart of the game is in `main.py`. It uses a **State Machine** to transition between states:
-*   **MENU**: High-contrast title screen.
-*   **PLAYING**: 60 FPS action with smooth input handling.
-*   **GAME_OVER**: Interactive initials entry (A-Z) using the joystick.
-*   **LEADERBOARD**: Displays the top 5 scores pulled from the cloud.
+The game uses a **State Machine** managed in the main loop of `main.py`. Rendering is handled via **Double Buffering** to the ST7789 display to ensure 60 FPS without tearing.
 
 ### 🔌 2. Hardware Configuration (`config.py`)
-Hardware-specific constants are isolated here. I've pre-mapped all the pins for your Waveshare board:
-*   **ST7789 Display**: High-speed SPI on Pins 10, 11, 9, 8.
-*   **Input Buttons**: Map to your board's Key A, B, and directional joystick buttons.
+Pre-mapped for the **Waveshare Pico-LCD-1.3**:
+*   **ST7789 Display**: Pins 10, 11, 9, 8, 12, 13.
+*   **Input Buttons**: Key A (15), Key B (17), Up (2), Down (18), Left (16), Right (20), Center (3).
 
-### ☁️ 3. Google Cloud Backend (`backend/`)
-Located in the `backend/` directory, these files are ready to deploy to GCP:
-*   **Firestore**: Used as the database (NoSQL).
-*   **Cloud Function**: A single Python entry point (`leaderboard_proxy`) that handles both score submission and leaderboard fetching.
+### ☁️ 3. Persistence & Cloud Logic
+*   **Local High Score**: Automatically saves/loads from `best_score.json` on the terminal.
+*   **GCP Integration**: Uses `urequests` to sync the top players to a Google Cloud Firestore backend.
 
 ### 📖 4. Key Implementation Details
 
+#### Screen Shake (Visual Juice)
+```python
+# Intensity set in config.py
+ox = random.randint(-config.SHAKE_INTENSITY, config.SHAKE_INTENSITY)
+oy = random.randint(-config.SHAKE_INTENSITY, config.SHAKE_INTENSITY)
+display.blit(ox, oy, 240, 240, fbuf_data)
+```
+
+#### Parallax Stars
+Background stars are stored in a list with unique `speed` properties, updated every frame to create a layered scrolling effect.
+
 #### Collision Detection (AABB)
-```python
-def check_collision(rect1, rect2):
-    return (rect1["x"] < rect2["x"] + rect2["w"] and
-            rect1["x"] + rect1["w"] > rect2["x"] and
-            rect1["y"] < rect2["y"] + rect2["h"] and
-            rect1["y"] + rect1["h"] > rect2["y"])
-```
-
-#### Double Buffering with FrameBuffer
-To prevent "tearing" or flickering, the game renders to an off-screen buffer before sending the final frame to the display:
-```python
-# Initialization
-fbuf_data = bytearray(config.DISPLAY_WIDTH * config.DISPLAY_HEIGHT * 2)
-fb = framebuf.FrameBuffer(fbuf_data, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT, framebuf.RGB565)
-
-# Rendering (Inside main loop)
-display.blit(0, 0, 240, 240, fbuf_data)
-```
+Standard Axis-Aligned Bounding Box collision checks for bullets, enemies, and power-ups.

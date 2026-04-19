@@ -5,12 +5,12 @@ import random
 import network
 import urequests
 import json
+import os
 from machine import Pin, SPI
 from st7789py import ST7789
 import config
 
 # --- Hardware Initialization ---
-# SPI for Display
 spi = SPI(1, baudrate=40000000, sck=Pin(config.PIN_LCD_SCK), mosi=Pin(config.PIN_LCD_MOSI))
 display = ST7789(
     spi, 
@@ -22,27 +22,25 @@ display = ST7789(
     backlight=Pin(config.PIN_LCD_BL, Pin.OUT)
 )
 
-# Buttons
-btn_a = Pin(config.PIN_KEY_A, Pin.IN, Pin.PULL_UP) # Fire
-btn_b = Pin(config.PIN_KEY_B, Pin.IN, Pin.PULL_UP) # Select
+btn_a = Pin(config.PIN_KEY_A, Pin.IN, Pin.PULL_UP)
+btn_b = Pin(config.PIN_KEY_B, Pin.IN, Pin.PULL_UP)
 joy_up    = Pin(config.PIN_JOY_UP, Pin.IN, Pin.PULL_UP)
 joy_down  = Pin(config.PIN_JOY_DOWN, Pin.IN, Pin.PULL_UP)
 joy_left  = Pin(config.PIN_JOY_LEFT, Pin.IN, Pin.PULL_UP)
 joy_right = Pin(config.PIN_JOY_RIGHT, Pin.IN, Pin.PULL_UP)
-joy_ctrl  = Pin(config.PIN_JOY_CTRL, Pin.IN, Pin.PULL_UP)
 
-# Framebuffer for double buffering
-# RGB565 is 2 bytes per pixel
 fbuf_data = bytearray(config.DISPLAY_WIDTH * config.DISPLAY_HEIGHT * 2)
 fb = framebuf.FrameBuffer(fbuf_data, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT, framebuf.RGB565)
 
-# --- Colors (RGB565 format) ---
+# --- Colors ---
 BLACK = 0x0000
 WHITE = 0xFFFF
 RED   = 0xF800
 GREEN = 0x07E0
 BLUE  = 0x001F
 YELLOW= 0xFFE0
+MAGENTA=0xF81F
+ORANGE= 0xFD20
 
 # --- Game States ---
 MENU = 0
@@ -52,28 +50,46 @@ LEADERBOARD = 3
 state = MENU
 
 # --- Game Variables ---
-player = {"x": 112, "y": 200, "w": 16, "h": 16}
+player = {"x": 112, "y": 200, "w": 16, "h": 16, "fire_rate": 200, "type": "single"}
 bullets = []
 enemies = []
-particles = [] # For explosions
+powerups = []
+particles = []
+boss = None
 score = 0
+best_score = 0
+multiplier = 1
+combo_timer = 0
 enemy_timer = 0
-initials = ["A", "A", "A"]
-initial_idx = 0
-leaderboard_data = []
+planet = None
+shake_timer = 0
 
-def connect_wifi():
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if not wlan.isconnected():
-        print('Connecting to Wi-Fi...')
-        wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
-        # Timeout after 10 seconds
-        for _ in range(100):
-            if wlan.isconnected(): break
-            time.sleep_ms(100)
-    return wlan.isconnected()
+# Parallax Stars
+stars = []
+for _ in range(50):
+    stars.append({"x": random.randint(0, 239), "y": random.randint(0, 239), "speed": random.uniform(0.5, 3), "color": WHITE})
 
+# --- Persistence ---
+def load_best_score():
+    global best_score
+    try:
+        if config.PERSISTENT_FILE in os.listdir():
+            with open(config.PERSISTENT_FILE, "r") as f:
+                data = json.load(f)
+                best_score = data.get("best", 0)
+    except:
+        best_score = 0
+
+def save_best_score():
+    try:
+        with open(config.PERSISTENT_FILE, "w") as f:
+            json.dump({"best": best_score}, f)
+    except:
+        pass
+
+load_best_score()
+
+# --- Helper Functions ---
 def check_collision(rect1, rect2):
     return (rect1["x"] < rect2["x"] + rect2["w"] and
             rect1["x"] + rect1["w"] > rect2["x"] and
@@ -81,195 +97,234 @@ def check_collision(rect1, rect2):
             rect1["y"] + rect1["h"] > rect2["y"])
 
 def reset_game():
-    global score, bullets, enemies, player, enemy_timer, particles
+    global score, bullets, enemies, player, enemy_timer, particles, multiplier, combo_timer, boss, powerups
     score = 0
+    multiplier = 1
+    combo_timer = 0
     bullets = []
     enemies = []
     particles = []
+    powerups = []
+    boss = None
     player["x"] = 112
     player["y"] = 200
+    player["fire_rate"] = 200
+    player["type"] = "single"
     enemy_timer = 0
 
-def submit_score():
-    if not connect_wifi():
-        return False
-    name = "".join(initials)
-    payload = json.dumps({"name": name, "score": score})
-    headers = {'Content-Type': 'application/json'}
-    try:
-        res = urequests.post(config.CLOUD_SUBMIT_URL, data=payload, headers=headers)
-        res.close()
-        return True
-    except:
-        return False
+def spawn_enemy():
+    etype = "scout" if random.random() > 0.2 else "tank"
+    color = RED if etype == "scout" else MAGENTA
+    hp = 1 if etype == "scout" else 3
+    speed = random.randint(3, 6) if etype == "scout" else random.randint(1, 2)
+    enemies.append({"x": random.randint(0, 220), "y": -20, "w": 16, "h": 16, "speed": speed, "type": etype, "hp": hp, "color": color})
 
-def fetch_leaderboard():
-    global leaderboard_data
-    if not connect_wifi():
-        return False
-    try:
-        res = urequests.get(config.CLOUD_GET_URL)
-        data = res.json()
-        leaderboard_data = data.get("leaderboard", [])
-        res.close()
-        return True
-    except:
-        return False
+def spawn_boss():
+    global boss
+    boss = {"x": 70, "y": -100, "w": 100, "h": 60, "hp": 50, "max_hp": 50, "vx": 2, "target_y": 30}
 
-# --- Main Loop ---
+def trigger_shake():
+    global shake_timer
+    shake_timer = 10
+
+# --- Core Loop ---
 last_tick = time.ticks_ms()
+fire_timer = 0
 
 while True:
-    dt = time.ticks_diff(time.ticks_ms(), last_tick)
-    last_tick = time.ticks_ms()
+    now = time.ticks_ms()
+    dt = time.ticks_diff(now, last_tick)
+    last_tick = now
     
-    # --- Input & Logic ---
+    # --- Logic ---
     if state == MENU:
-        if not btn_a.value() or not btn_b.value() or not joy_ctrl.value():
+        if not btn_a.value() or not btn_b.value():
             reset_game()
             state = PLAYING
             time.sleep_ms(200)
 
     elif state == PLAYING:
-        # Movement
-        if not joy_left.value() and player["x"] > 0: player["x"] -= 3
-        if not joy_right.value() and player["x"] < config.DISPLAY_WIDTH - player["w"]: player["x"] += 3
-        if not joy_up.value() and player["y"] > 0: player["y"] -= 3
-        if not joy_down.value() and player["y"] < config.DISPLAY_HEIGHT - player["h"]: player["y"] += 3
+        # Stars
+        for s in stars:
+            s["y"] += s["speed"]
+            if s["y"] > 240:
+                s["y"] = 0
+                s["x"] = random.randint(0, 239)
+        
+        # Planet
+        if planet:
+            planet["y"] += 0.2
+            if planet["y"] > 240: planet = None
+        elif random.randint(1, config.PLANET_RARITY) == 1:
+            planet = {"x": random.randint(0, 180), "y": -60, "size": random.randint(40, 60), "color": BLUE}
+
+        # Player Movement
+        if not joy_left.value() and player["x"] > 0: player["x"] -= 4
+        if not joy_right.value() and player["x"] < 240 - player["w"]: player["x"] += 4
+        if not joy_up.value() and player["y"] > 0: player["y"] -= 4
+        if not joy_down.value() and player["y"] < 240 - player["h"]: player["y"] += 4
         
         # Shooting
-        if not btn_a.value():
-            if len(bullets) < 5: # Limit bullets on screen
+        if not btn_a.value() and time.ticks_diff(now, fire_timer) > player["fire_rate"]:
+            if player["type"] == "single":
                 bullets.append({"x": player["x"] + 6, "y": player["y"], "w": 4, "h": 8})
-                time.sleep_ms(150) # Debounce/Rate limit
+            elif player["type"] == "triple":
+                bullets.append({"x": player["x"] + 6, "y": player["y"], "w": 4, "h": 8, "vx": 0})
+                bullets.append({"x": player["x"], "y": player["y"]+4, "w": 4, "h": 8, "vx": -2})
+                bullets.append({"x": player["x"]+12, "y": player["y"]+4, "w": 4, "h": 8, "vx": 2})
+            fire_timer = now
         
-        # Enemy Spawning
-        enemy_timer += 1
-        if enemy_timer > 30: # Spawn every ~0.5s
-            enemies.append({"x": random.randint(0, 220), "y": -20, "w": 20, "h": 20, "speed": random.randint(2, 5)})
-            enemy_timer = 0
+        # Spawning
+        if not boss:
+            enemy_timer += 1
+            spawn_rate = 25 - (score // 1000) if config.ADAPTIVE_DIFFICULTY else 30
+            if enemy_timer > max(10, spawn_rate):
+                spawn_enemy()
+                enemy_timer = 0
+            if score > 0 and score % config.BOSS_SCORE_THRESHOLD == 0 and score // config.BOSS_SCORE_THRESHOLD >= 1:
+                # Check if we already have a boss
+                spawn_boss()
+                score += 100 # Offset so it doesn't re-trigger immediately
+
+        # Boss Logic
+        if boss:
+            if boss["y"] < boss["target_y"]: boss["y"] += 1
+            else:
+                boss["x"] += boss["vx"]
+                if boss["x"] <= 0 or boss["x"] >= 140: boss["vx"] *= -1
             
+            # Boss collision with player
+            if check_collision(player, boss):
+                trigger_shake()
+                state = GAME_OVER
+        
         # Update Bullets
         for b in bullets[:]:
-            b["y"] -= 7
-            if b["y"] < -10: bullets.remove(b)
+            b["y"] -= 8
+            if "vx" in b: b["x"] += b["vx"]
+            if b["y"] < -10 or b["x"] < -10 or b["x"] > 250: bullets.remove(b)
             
         # Update Enemies
         for e in enemies[:]:
             e["y"] += e["speed"]
-            if e["y"] > config.DISPLAY_HEIGHT: 
-                enemies.remove(e)
-                # Penalty for letting enemies pass? No, just keep it simple.
-            
-            # Collision: Player vs Enemy
+            if e["y"] > 240: enemies.remove(e)
             if check_collision(player, e):
+                trigger_shake()
                 state = GAME_OVER
-                time.sleep_ms(200)
         
-        # Collision: Bullet vs Enemy
+        # Update Powerups
+        for p in powerups[:]:
+            p["y"] += 2
+            if p["y"] > 240: powerups.remove(p)
+            if check_collision(player, p):
+                if p["type"] == "triple": player["type"] = "triple"
+                elif p["type"] == "speed": player["fire_rate"] = 100
+                powerups.remove(p)
+                score += 50
+        
+        # Bullet Collisions
         for b in bullets[:]:
+            # vs Boss
+            if boss and check_collision(b, boss):
+                if b in bullets: bullets.remove(b)
+                boss["hp"] -= 1
+                if boss["hp"] <= 0:
+                    score += 5000
+                    boss = None
+                    trigger_shake()
+                break
+            # vs Enemies
             for e in enemies[:]:
                 if check_collision(b, e):
                     if b in bullets: bullets.remove(b)
-                    if e in enemies: enemies.remove(e)
-                    score += 100
-                    # Create explosion particles
-                    for _ in range(5):
-                        particles.append({"x": e["x"]+10, "y": e["y"]+10, "vx": random.uniform(-2, 2), "vy": random.uniform(-2, 2), "life": 10})
+                    e["hp"] -= 1
+                    if e["hp"] <= 0:
+                        enemies.remove(e)
+                        # Drop powerup?
+                        if random.random() < 0.1:
+                            ptype = "triple" if random.random() > 0.5 else "speed"
+                            powerups.append({"x": e["x"], "y": e["y"], "w": 12, "h": 12, "type": ptype})
+                        
+                        # Combo Multiplier
+                        combo_timer = 60 # 1 second at 60fps
+                        if multiplier < config.MAX_MULTIPLIER: multiplier += 1
+                        score += 100 * multiplier
+                        
+                        for _ in range(5):
+                            particles.append({"x": e["x"]+8, "y": e["y"]+8, "vx": random.uniform(-2, 2), "vy": random.uniform(-2, 2), "life": 12})
                     break
-                    
-        # Update Particles
+        
+        # Combo Decay
+        if combo_timer > 0: combo_timer -= 1
+        else: multiplier = 1
+
+        # Particles
         for p in particles[:]:
-            p["x"] += p["vx"]
-            p["y"] += p["vy"]
-            p["life"] -= 1
+            p["x"] += p["vx"]; p["y"] += p["vy"]; p["life"] -= 1
             if p["life"] <= 0: particles.remove(p)
 
     elif state == GAME_OVER:
-        # Move through letters
-        if not joy_up.value():
-            initials[initial_idx] = chr(((ord(initials[initial_idx]) - 65 + 1) % 26) + 65)
-            time.sleep_ms(150)
-        if not joy_down.value():
-            initials[initial_idx] = chr(((ord(initials[initial_idx]) - 65 - 1) % 26) + 65)
-            time.sleep_ms(150)
-        if not joy_right.value():
-            initial_idx = (initial_idx + 1) % 3
-            time.sleep_ms(150)
-        if not joy_left.value():
-            initial_idx = (initial_idx - 1) % 3
-            time.sleep_ms(150)
-            
-        if not btn_a.value(): # Submit
-            fb.fill(BLACK)
-            fb.text("SUBMITTING...", 70, 110, WHITE)
-            display.blit(0, 0, 240, 240, fbuf_data)
-            submit_score()
-            fetch_leaderboard()
-            state = LEADERBOARD
-            time.sleep_ms(300)
-
-    elif state == LEADERBOARD:
-        if not btn_a.value() or not btn_b.value():
+        if score > best_score:
+            best_score = score
+            save_best_score()
+        if not btn_a.value():
             state = MENU
             time.sleep_ms(300)
 
     # --- Draw ---
     fb.fill(BLACK)
     
+    # Parallax Stars
+    for s in stars:
+        fb.pixel(int(s["x"]), int(s["y"]), s["color"])
+    
+    # Planet
+    if planet:
+        fb.fill_circle(int(planet["x"]), int(planet["y"]), planet["size"], planet["color"])
+
+    # Offset for Shake
+    ox, oy = 0, 0
+    if shake_timer > 0:
+        ox = random.randint(-config.SHAKE_INTENSITY, config.SHAKE_INTENSITY)
+        oy = random.randint(-config.SHAKE_INTENSITY, config.SHAKE_INTENSITY)
+        shake_timer -= 1
+
     if state == MENU:
-        fb.text("SPACE SHOOTER", 65, 80, YELLOW)
-        fb.text("PICO 2W EDITION", 60, 100, WHITE)
+        fb.text("PICO ARCADE", 75, 80, YELLOW)
+        fb.text(f"HI-SCORE: {best_score}", 65, 110, WHITE)
         fb.text("PRESS A TO START", 55, 160, GREEN)
         
     elif state == PLAYING:
-        # Draw Player (Triangle)
-        fb.line(player["x"]+8, player["y"], player["x"], player["y"]+16, WHITE)
-        fb.line(player["x"]+8, player["y"], player["x"]+16, player["y"]+16, WHITE)
-        fb.line(player["x"], player["y"]+16, player["x"]+16, player["y"]+16, WHITE)
+        # Player (8-bit style)
+        fb.fill_rect(player["x"]+6, player["y"], 4, 16, WHITE)
+        fb.fill_rect(player["x"], player["y"]+8, 16, 8, BLUE)
         
-        # Draw Bullets
-        for b in bullets:
-            fb.fill_rect(b["x"], b["y"], b["w"], b["h"], YELLOW)
-            
-        # Draw Enemies
-        for e in enemies:
-            fb.fill_rect(e["x"], e["y"], e["w"], e["h"], RED)
-            fb.text("!", e["x"]+7, e["y"]+6, WHITE)
-            
-        # Draw Particles
-        for p in particles:
-            fb.pixel(int(p["x"]), int(p["y"]), YELLOW)
+        for b in bullets: fb.fill_rect(b["x"], b["y"], b["w"], b["h"], YELLOW)
+        for e in enemies: fb.fill_rect(e["x"], e["y"], e["w"], e["h"], e["color"])
+        for p in powerups:
+            pcol = ORANGE if p["type"] == "triple" else GREEN
+            fb.fill_rect(p["x"], p["y"], p["w"], p["h"], pcol)
+            fb.text("P", p["x"]+2, p["y"]+2, WHITE)
+        for p in particles: fb.pixel(int(p["x"]), int(p["y"]), ORANGE)
+        
+        if boss:
+            fb.fill_rect(boss["x"], boss["y"], boss["w"], boss["h"], RED)
+            # HP Bar
+            bw = int((boss["hp"] / boss["max_hp"]) * 200)
+            fb.fill_rect(20, 10, 200, 5, RED)
+            fb.fill_rect(20, 10, bw, 5, GREEN)
             
         # UI
         fb.text(f"SCORE: {score}", 5, 5, WHITE)
+        if multiplier > 1:
+            fb.text(f"X{multiplier}", 200, 5, YELLOW)
+            fb.fill_rect(200, 15, int((combo_timer/60)*30), 2, YELLOW)
 
     elif state == GAME_OVER:
-        fb.text("GAME OVER", 80, 60, RED)
-        fb.text(f"FINAL SCORE: {score}", 55, 90, WHITE)
-        fb.text("ENTER INITIALS:", 55, 130, YELLOW)
-        
-        for i in range(3):
-            color = GREEN if i == initial_idx else WHITE
-            fb.text(initials[i], 100 + i*15, 160, color)
-            if i == initial_idx:
-                fb.line(100 + i*15, 170, 108 + i*15, 170, GREEN)
-                
-        fb.text("PRESS A TO SUBMIT", 50, 200, WHITE)
+        fb.text("GAME OVER", 80, 80, RED)
+        fb.text(f"SCORE: {score}", 80, 110, WHITE)
+        fb.text("PRESS A TO RESTART", 50, 160, GREEN)
 
-    elif state == LEADERBOARD:
-        fb.text("LEADERBOARD", 75, 40, YELLOW)
-        for i, entry in enumerate(leaderboard_data):
-            y = 70 + i*25
-            fb.text(f"{i+1}. {entry['name']} - {entry['score']}", 60, y, WHITE)
-        
-        if not leaderboard_data:
-            fb.text("LOADING...", 85, 120, WHITE)
-            
-        fb.text("PRESS A TO MENU", 60, 210, GREEN)
-
-    # Blit to hardware
-    display.blit(0, 0, 240, 240, fbuf_data)
-    
-    # Target ~60 FPS
+    # Blit with shake
+    display.blit(ox, oy, 240, 240, fbuf_data)
     time.sleep_ms(16)

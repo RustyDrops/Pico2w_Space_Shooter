@@ -28,6 +28,13 @@ WIFI_SSID = 'YOUR_WIFI_SSID'
 WIFI_PASSWORD = 'YOUR_WIFI_PASSWORD'
 
 # API Configuration
-# Replace with your deployed Google Cloud Function URL
 CLOUD_SUBMIT_URL = "https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/submit_score"
 CLOUD_GET_URL = "https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/get_leaderboard"
+
+# --- New Arcade Settings ---
+ADAPTIVE_DIFFICULTY = True
+PERSISTENT_FILE = "best_score.json"
+BOSS_SCORE_THRESHOLD = 5000  # Spawn boss every 5000 pts
+SHAKE_INTENSITY = 4         # Pixels for screen shake
+PLANET_RARITY = 500         # 1 in 500 chance per frame
+MAX_MULTIPLIER = 10
