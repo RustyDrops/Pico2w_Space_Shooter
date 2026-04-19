@@ -50,6 +50,21 @@ MIT
 
 ---
 
+## Agentic AI OS Integration (AnnIs Lite) 🤖
+
+If you are using the **AnnIs Lite OS**, you can install the `annis_coach` skill to allow your AI to mentor the pilot, optimize training sessions, and give you natural language reports.
+
+### Installation
+1.  Copy `integration/annis_coach.py` into your AnnIs Lite OS `/tools/` or `/integration/` directory.
+2.  AnnIs can now import this tool to interact with the game.
+
+### Features
+*   **Coach Mode**: AnnIs can call `optimize_pilot("aggressive")` to tune the game's learning parameters live.
+*   **Performance Debriefs**: Ask AnnIs *"How is the pilot doing?"* and she will read the `pilot_report.json` to give you a token-efficient summary of stats.
+*   **Nightly Training**: AnnIs can trigger training sessions during her **REM Sleep** protocol by calling `launch_training_session()`.
+
+---
+
 ## Technical Architecture & Walkthrough 🕹️
 
 ### 🎮 1. MicroPython Game Engine
@@ -62,7 +77,20 @@ Instead of managing raw hexadecimal bitmaps, the game features a custom **ASCII-
 *   **Dynamic Banking**: The player ship sprite tilts left/right based on joystick input.
 *   **Transparency**: `main.py` uses `fb.blit` with a color key (`0x0000`/Black) to overlay sprites transparently onto the parallax background.
 
-### 🔌 3. Hardware Configuration (`config.py`)
+### 🧠 3. Sentient Pilot AI (`ai_pilot.py`)
+A standalone **Reinforcement Learning** agent that learns to play the game on-device.
+*   **Algorithm**: Tabular Q-Learning with Reward Shaping.
+*   **State Space**: 5D state tracking (Player Pos, Enemy relative Pos, Powerup direction).
+*   **Auto-Pilot Toggle**: Managed via Joystick Center click with a pause-to-confirm safety menu.
+*   **Persistence**: Atomic saves to `soul_pilot.json` (RAM-only learning with milestone/manual commits to Flash).
+
+### ☁️ 4. AnnIs Lite OS Bridge & Persistence
+*   **Performance Digest**: On every Game Over, the game writes `pilot_report.json`—a low-token summary for Agentic AI (Gemini) analysis.
+*   **Serial Control**: Supports real-time commands via USB Serial (e.g., `AUTOPILOT ON`, `SAVE BRAIN`).
+*   **Local High Score**: Automatically saves/loads from `best_score.json` on the terminal.
+*   **GCP Integration**: Uses `urequests` to sync the top players to a Google Cloud Firestore backend.
+
+### 🔌 5. Hardware Configuration (`config.py`)
 Pre-mapped for the **Waveshare Pico-LCD-1.3**:
 *   **ST7789 Display**: Pins 10, 11, 9, 8, 12, 13.
 *   **Input Buttons**: Key A (15), Key B (17), Up (2), Down (18), Left (16), Right (20), Center (3).

@@ -31,10 +31,20 @@ WIFI_PASSWORD = 'YOUR_WIFI_PASSWORD'
 CLOUD_SUBMIT_URL = "https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/submit_score"
 CLOUD_GET_URL = "https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/get_leaderboard"
 
-# --- New Arcade Settings ---
+# --- Arcade Settings ---
 ADAPTIVE_DIFFICULTY = True
 PERSISTENT_FILE = "best_score.json"
-BOSS_SCORE_THRESHOLD = 5000  # Spawn boss every 5000 pts
-SHAKE_INTENSITY = 4         # Pixels for screen shake
-PLANET_RARITY = 500         # 1 in 500 chance per frame
+BOSS_SCORE_THRESHOLD = 5000  
+SHAKE_INTENSITY = 4         
+PLANET_RARITY = 500         
 MAX_MULTIPLIER = 10
+
+# --- AI Pilot Settings (Reinforcement Learning) ---
+AI_BRAIN_FILE = "soul_pilot.json"
+AI_REPORT_FILE = "pilot_report.json"
+AI_ALPHA = 0.1             # Learning Rate
+AI_GAMMA = 0.95            # Discount Factor
+AI_EPSILON = 0.2           # Exploration Rate
+AI_THINK_RATE = 5          # Actions happen every 5 frames
+AI_DASHBOARD_HEIGHT = 20    # Height of AI status bar at bottom
+AI_ENABLED_BY_DEFAULT = False
