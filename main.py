@@ -9,6 +9,7 @@ import os
 from machine import Pin, SPI
 from st7789py import ST7789
 import config
+import sprites
 
 # --- Hardware Initialization ---
 spi = SPI(1, baudrate=40000000, sck=Pin(config.PIN_LCD_SCK), mosi=Pin(config.PIN_LCD_MOSI))
@@ -32,6 +33,11 @@ joy_right = Pin(config.PIN_JOY_RIGHT, Pin.IN, Pin.PULL_UP)
 fbuf_data = bytearray(config.DISPLAY_WIDTH * config.DISPLAY_HEIGHT * 2)
 fb = framebuf.FrameBuffer(fbuf_data, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT, framebuf.RGB565)
 
+# Initialize Sprites
+print("Compiling Sprites...")
+sprites.compile_all()
+SPR = sprites.COMPILED
+
 # --- Colors ---
 BLACK = 0x0000
 WHITE = 0xFFFF
@@ -39,7 +45,6 @@ RED   = 0xF800
 GREEN = 0x07E0
 BLUE  = 0x001F
 YELLOW= 0xFFE0
-MAGENTA=0xF81F
 ORANGE= 0xFD20
 
 # --- Game States ---
@@ -50,7 +55,7 @@ LEADERBOARD = 3
 state = MENU
 
 # --- Game Variables ---
-player = {"x": 112, "y": 200, "w": 16, "h": 16, "fire_rate": 200, "type": "single"}
+player = {"x": 112, "y": 200, "w": 16, "h": 16, "fire_rate": 200, "type": "single", "bank": 0}
 bullets = []
 enemies = []
 powerups = []
@@ -63,6 +68,7 @@ combo_timer = 0
 enemy_timer = 0
 planet = None
 shake_timer = 0
+global_tick = 0  # Used for animation frames
 
 # Parallax Stars
 stars = []
@@ -110,18 +116,18 @@ def reset_game():
     player["y"] = 200
     player["fire_rate"] = 200
     player["type"] = "single"
+    player["bank"] = 0
     enemy_timer = 0
 
 def spawn_enemy():
-    etype = "scout" if random.random() > 0.2 else "tank"
-    color = RED if etype == "scout" else MAGENTA
+    etype = "scout" if random.random() > 0.3 else "tank"
     hp = 1 if etype == "scout" else 3
     speed = random.randint(3, 6) if etype == "scout" else random.randint(1, 2)
-    enemies.append({"x": random.randint(0, 220), "y": -20, "w": 16, "h": 16, "speed": speed, "type": etype, "hp": hp, "color": color})
+    enemies.append({"x": random.randint(0, 220), "y": -20, "w": 16, "h": 16, "speed": speed, "type": etype, "hp": hp})
 
 def spawn_boss():
     global boss
-    boss = {"x": 70, "y": -100, "w": 100, "h": 60, "hp": 50, "max_hp": 50, "vx": 2, "target_y": 30}
+    boss = {"x": 88, "y": -100, "w": 64, "h": 30, "hp": 50, "max_hp": 50, "vx": 2, "target_y": 30}
 
 def trigger_shake():
     global shake_timer
@@ -135,6 +141,7 @@ while True:
     now = time.ticks_ms()
     dt = time.ticks_diff(now, last_tick)
     last_tick = now
+    global_tick += 1
     
     # --- Logic ---
     if state == MENU:
@@ -159,8 +166,13 @@ while True:
             planet = {"x": random.randint(0, 180), "y": -60, "size": random.randint(40, 60), "color": BLUE}
 
         # Player Movement
-        if not joy_left.value() and player["x"] > 0: player["x"] -= 4
-        if not joy_right.value() and player["x"] < 240 - player["w"]: player["x"] += 4
+        player["bank"] = 0
+        if not joy_left.value() and player["x"] > 0: 
+            player["x"] -= 4
+            player["bank"] = -1
+        if not joy_right.value() and player["x"] < 240 - player["w"]: 
+            player["x"] += 4
+            player["bank"] = 1
         if not joy_up.value() and player["y"] > 0: player["y"] -= 4
         if not joy_down.value() and player["y"] < 240 - player["h"]: player["y"] += 4
         
@@ -182,16 +194,15 @@ while True:
                 spawn_enemy()
                 enemy_timer = 0
             if score > 0 and score % config.BOSS_SCORE_THRESHOLD == 0 and score // config.BOSS_SCORE_THRESHOLD >= 1:
-                # Check if we already have a boss
                 spawn_boss()
-                score += 100 # Offset so it doesn't re-trigger immediately
+                score += 100 
 
         # Boss Logic
         if boss:
             if boss["y"] < boss["target_y"]: boss["y"] += 1
             else:
                 boss["x"] += boss["vx"]
-                if boss["x"] <= 0 or boss["x"] >= 140: boss["vx"] *= -1
+                if boss["x"] <= 0 or boss["x"] >= (240 - boss["w"]): boss["vx"] *= -1
             
             # Boss collision with player
             if check_collision(player, boss):
@@ -224,7 +235,6 @@ while True:
         
         # Bullet Collisions
         for b in bullets[:]:
-            # vs Boss
             if boss and check_collision(b, boss):
                 if b in bullets: bullets.remove(b)
                 boss["hp"] -= 1
@@ -233,20 +243,17 @@ while True:
                     boss = None
                     trigger_shake()
                 break
-            # vs Enemies
             for e in enemies[:]:
                 if check_collision(b, e):
                     if b in bullets: bullets.remove(b)
                     e["hp"] -= 1
                     if e["hp"] <= 0:
                         enemies.remove(e)
-                        # Drop powerup?
                         if random.random() < 0.1:
                             ptype = "triple" if random.random() > 0.5 else "speed"
                             powerups.append({"x": e["x"], "y": e["y"], "w": 12, "h": 12, "type": ptype})
                         
-                        # Combo Multiplier
-                        combo_timer = 60 # 1 second at 60fps
+                        combo_timer = 60 
                         if multiplier < config.MAX_MULTIPLIER: multiplier += 1
                         score += 100 * multiplier
                         
@@ -295,20 +302,39 @@ while True:
         fb.text("PRESS A TO START", 55, 160, GREEN)
         
     elif state == PLAYING:
-        # Player (8-bit style)
-        fb.fill_rect(player["x"]+6, player["y"], 4, 16, WHITE)
-        fb.fill_rect(player["x"], player["y"]+8, 16, 8, BLUE)
+        # Determine Animation Frame (toggle every 6 ticks)
+        f_idx = "f2" if (global_tick // 6) % 2 == 1 else "f1"
         
-        for b in bullets: fb.fill_rect(b["x"], b["y"], b["w"], b["h"], YELLOW)
-        for e in enemies: fb.fill_rect(e["x"], e["y"], e["w"], e["h"], e["color"])
+        # Draw Player Ship depending on banking
+        px = int(player["x"])
+        py = int(player["y"])
+        if player["bank"] == -1:
+            fb.blit(SPR[f'player_left_{f_idx}'], px, py, 0x0000)
+        elif player["bank"] == 1:
+            fb.blit(SPR[f'player_right_{f_idx}'], px, py, 0x0000)
+        else:
+            fb.blit(SPR[f'player_straight_{f_idx}'], px, py, 0x0000)
+        
+        # Draw Bullets
+        for b in bullets: 
+            fb.fill_rect(int(b["x"]), int(b["y"]), b["w"], b["h"], YELLOW)
+            
+        # Draw Enemies
+        for e in enemies:
+            fb.blit(SPR[f'{e["type"]}_{f_idx}'], int(e["x"]), int(e["y"]), 0x0000)
+            
+        # Draw Powerups
         for p in powerups:
-            pcol = ORANGE if p["type"] == "triple" else GREEN
-            fb.fill_rect(p["x"], p["y"], p["w"], p["h"], pcol)
-            fb.text("P", p["x"]+2, p["y"]+2, WHITE)
-        for p in particles: fb.pixel(int(p["x"]), int(p["y"]), ORANGE)
+            # Powerups have 12x12 sprites
+            fb.blit(SPR[f'pu_{p["type"]}_{f_idx}'], int(p["x"]), int(p["y"]), 0x0000)
+            
+        # Draw Hit Particles
+        for p in particles: 
+            fb.pixel(int(p["x"]), int(p["y"]), ORANGE)
         
+        # Draw Boss
         if boss:
-            fb.fill_rect(boss["x"], boss["y"], boss["w"], boss["h"], RED)
+            fb.blit(SPR[f'boss_{f_idx}'], int(boss["x"]), int(boss["y"]), 0x0000)
             # HP Bar
             bw = int((boss["hp"] / boss["max_hp"]) * 200)
             fb.fill_rect(20, 10, 200, 5, RED)
@@ -325,6 +351,8 @@ while True:
         fb.text(f"SCORE: {score}", 80, 110, WHITE)
         fb.text("PRESS A TO RESTART", 50, 160, GREEN)
 
-    # Blit with shake
+    # Blit with shake offset
     display.blit(ox, oy, 240, 240, fbuf_data)
-    time.sleep_ms(16)
+    
+    # Try to maintain ~60 FPS
+    time.sleep_ms(max(0, 16 - dt))

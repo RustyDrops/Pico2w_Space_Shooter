@@ -55,7 +55,14 @@ MIT
 ### 🎮 1. MicroPython Game Engine
 The game uses a **State Machine** managed in the main loop of `main.py`. Rendering is handled via **Double Buffering** to the ST7789 display to ensure 60 FPS without tearing.
 
-### 🔌 2. Hardware Configuration (`config.py`)
+### 🎨 2. Sprite Rendering Engine (`sprites.py`)
+Instead of managing raw hexadecimal bitmaps, the game features a custom **ASCII-to-Sprite Compiler**. 
+*   **Easy Editing**: Sprites are drawn in `sprites.py` using simple text characters (e.g., `W` for White, `R` for Red).
+*   **Animations**: The engine manages frame states (e.g., flickering engine propulsion, spinning power-ups).
+*   **Dynamic Banking**: The player ship sprite tilts left/right based on joystick input.
+*   **Transparency**: `main.py` uses `fb.blit` with a color key (`0x0000`/Black) to overlay sprites transparently onto the parallax background.
+
+### 🔌 3. Hardware Configuration (`config.py`)
 Pre-mapped for the **Waveshare Pico-LCD-1.3**:
 *   **ST7789 Display**: Pins 10, 11, 9, 8, 12, 13.
 *   **Input Buttons**: Key A (15), Key B (17), Up (2), Down (18), Left (16), Right (20), Center (3).
