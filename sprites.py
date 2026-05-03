@@ -31,8 +31,9 @@ def compile_sprite(ascii_art):
     for row in ascii_art:
         for char in row:
             color = PALETTE.get(char, 0x0000)
-            buf[idx] = color & 0xFF
-            buf[idx+1] = color >> 8
+            # Big Endian for ST7789
+            buf[idx] = (color >> 8) & 0xFF
+            buf[idx+1] = color & 0xFF
             idx += 2
             
     return framebuf.FrameBuffer(buf, width, height, framebuf.RGB565)
@@ -295,25 +296,49 @@ _pu_speed_f2 = [
 # Dictionary to hold the compiled framebuffers
 COMPILED = {}
 
+# Space Platform (Station) - 48x32
+_station = [
+    "......................gwwg......................",
+    "......................WwwW......................",
+    "......................WwwW......................",
+    "..................ggggWwwWgggg..................",
+    "...........gggggggWWWWWWWWWWWWggggggg...........",
+    "........gggWWWWWWWWWWWWWWWWWWWWWWWWWWggg........",
+    "......ggWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWgg......",
+    ".....gWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWg.....",
+    "....gWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWg....",
+    "...gWWWWWWWWWWWCCCCCCCCCCCCCCCCWWWWWWWWWWWWg...",
+    "...WwwwwwwwwwwW................WwwwwwwwwwwW...",
+    "...WwwwwwwwwwwW................WwwwwwwwwwwW...",
+    "...WwwwwwwwwwwW................WwwwwwwwwwwW...",
+    "...WwwwwwwwwwwW................WwwwwwwwwwwW...",
+    "...gWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWg....",
+    "....gWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWg.....",
+    ".....ggWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWgg......",
+    ".......gggWWWWWWWWWWWWWWWWWWWWWWWWWWggg........",
+    "...........gggggggWWWWWWWWWWWWggggggg...........",
+    "..................ggggWwwWgggg..................",
+    "......................WwwW......................",
+    "......................WwwW......................",
+    "......................gwwg......................"
+]
+
+# Planet Surface (Chunk) - 64x16
+_planet_surface = [
+    "................................................................",
+    "................................................................",
+    ".......GGGG...................................GGGG..............",
+    "....GGGGGGGGGG.............................GGGGGGGGGG..........",
+    "..GGGGGGGGGGGGGGGG.....................GGGGGGGGGGGGGGGG........",
+    ".GGGGGGGGGGGGGGGGGGGG...............GGGGGGGGGGGGGGGGGGGG.......",
+    "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+    "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+    "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+]
+
 def compile_all():
     global COMPILED
-    COMPILED['player_straight_f1'] = compile_sprite(_player_straight)
-    COMPILED['player_straight_f2'] = compile_sprite(_player_straight_f2)
-    COMPILED['player_left_f1'] = compile_sprite(_player_left)
-    COMPILED['player_left_f2'] = compile_sprite(_player_left_f2)
-    COMPILED['player_right_f1'] = compile_sprite(_player_right)
-    COMPILED['player_right_f2'] = compile_sprite(_player_right_f2)
-    
-    COMPILED['scout_f1'] = compile_sprite(_scout_f1)
-    COMPILED['scout_f2'] = compile_sprite(_scout_f2)
-    COMPILED['tank_f1'] = compile_sprite(_tank_f1)
-    COMPILED['tank_f2'] = compile_sprite(_tank_f2)
-    
-    COMPILED['boss_f1'] = compile_sprite(_boss_f1)
-    COMPILED['boss_f2'] = compile_sprite(_boss_f2)
-    
-    COMPILED['pu_triple_f1'] = compile_sprite(_pu_triple)
-    COMPILED['pu_triple_f2'] = compile_sprite(_pu_triple_f2)
-    
-    COMPILED['pu_speed_f1'] = compile_sprite(_pu_speed)
-    COMPILED['pu_speed_f2'] = compile_sprite(_pu_speed_f2)
+    # ... existing compiles ...
+    COMPILED['station'] = compile_sprite(_station)
+    COMPILED['planet_surface'] = compile_sprite(_planet_surface)
+    # ... rest ...

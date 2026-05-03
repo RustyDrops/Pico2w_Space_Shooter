@@ -33,11 +33,16 @@ CLOUD_GET_URL = "https://YOUR_REGION-YOUR_PROJECT_ID.cloudfunctions.net/get_lead
 
 # --- Arcade Settings ---
 ADAPTIVE_DIFFICULTY = True
-PERSISTENT_FILE = "best_score.json"
+PERSISTENT_FILE = "save_data.json"
 BOSS_SCORE_THRESHOLD = 5000  
 SHAKE_INTENSITY = 4         
 PLANET_RARITY = 500         
 MAX_MULTIPLIER = 10
+
+# --- Progression ---
+SECTOR_LENGTH = 10000        # Score required to clear a sector
+UPGRADE_COST_BASE = 500     # Base cost for the shop
+MAX_UPGRADE_LEVEL = 5
 
 # --- AI Pilot Settings (Reinforcement Learning) ---
 AI_BRAIN_FILE = "soul_pilot.json"

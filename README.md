@@ -1,116 +1,51 @@
-# Pico 2W Space Shooter 🚀
+# Pico 2W Space Shooter (Roguelite High-Performance Edition) 🚀
 
-A high-performance vertical space shooter for the Raspberry Pi Pico 2W with a cloud-based leaderboard.
+A vertically scrolling space shooter optimized for the **Raspberry Pi Pico 2W (RP2350)**, featuring meta-progression and a sentient Q-Learning AI pilot.
 
-![Hardware Setup](https://www.waveshare.com/w/upload/2/2f/Pico-LCD-1.3-1.jpg)
+## 🚀 Performance & Hardware
+- **Dynamic Overclocking:** The RP2350 runs at **150MHz** during manual play and automatically ramps up to **250MHz** when the AI Pilot is engaged to handle intensive RL calculations.
+- **Dedicated Rendering (Dual Core):** Pixel pushing is offloaded to the second CPU core (`_thread`), keeping the game logic at a locked **60FPS**.
+- **62.5MHz SPI:** Ultra-fast display communication reduces frame latency.
+- **ST7789 Optimized:** Native Big-Endian sprite rendering ensures vibrant, correct colors on the Waveshare 1.3" LCD.
 
-## Features
-- **Fast 60 FPS Logic**: Optimized for the Pico 2W and the ST7789 display.
-- **State Machine Architecture**: Clean separation between MENU, PLAYING, GAME_OVER, and LEADERBOARD states.
-- **Parallax Starfield**: Three-layer background with varied speeds and rare decorative planets.
-- **Advanced Entities**: Multiple enemy types (Scouts, Tanks) and massive **Boss Battle** encounters.
-- **Power-up System**: Drop-based buffs including Triple Shot and Rapid Fire.
-- **Arcade Feedback**: Screen shake, combo multipliers (up to x10), and adaptive difficulty.
-- **Persistence**: HI-SCORE tracking using local JSON storage on the Pico.
-- **Double Buffering**: Flick-free rendering using MicroPython's `framebuf`.
+## 🧠 Advanced Q-Learning AI
+The standalone `ai_pilot.py` agent learns to play the game on-device using Tabular Reinforcement Learning.
+- **Reward Shaping:** The AI is rewarded for aggressive positioning (lining up shots) and penalized for "Wall Hugging" or unnecessary movement.
+- **Relative State Space:** The AI "sees" threats relative to its own position (Vertical and Horizontal), allowing for more tactical dodging.
+- **Epsilon Decay:** The pilot starts by exploring randomly but slowly transitions to "Expert Mode" as it decays its exploration rate.
+- **Brain Pruning:** Intelligent memory management keeps the Q-Table within the Pico's RAM limits by discarding low-priority states.
+- **Fast Loader:** Custom string-to-tuple parsing for brain persistence, avoiding the high overhead of `eval()`.
 
-## Hardware Requirements
-- **Raspberry Pi Pico 2W**
-- **Waveshare Pico-LCD-1.3** (240x240 Resolution)
-- Micro-USB cable
+## 🛠️ Meta-Progression & Gameplay
+- **Scrap Currency:** Enemies drop scrap ($) upon destruction. Higher combo multipliers yield significantly more currency.
+- **The Hangar (Shop):** Spend scrap on permanent upgrades that persist across all game sessions:
+    - **Engine:** Increases ship speed and maneuverability.
+    - **Cannons:** Boosts fire rate for high-density combat.
+    - **Armor:** Increases defensive capabilities for deep space sectors.
+- **Sector System:** Progress through increasingly difficult "Sectors" every 10,000 points. Enemies become tougher, but scrap rewards increase.
+- **Persistence:** All progress, upgrades, and high scores are saved locally to `save_data.json`.
 
-## Installation
+## 🕹️ Controls
+### Main Menu
+- **Button A:** Start Mission
+- **Button B:** Enter Hangar (Shop)
 
-### 1. MicroPython Setup
+### Hangar (Shop)
+- **Joystick Up:** Upgrade Engine
+- **Joystick Down:** Upgrade Cannons
+- **Button A:** Upgrade Armor
+- **Button B:** Return to Menu
+
+### Gameplay
+- **Joystick:** Move Ship
+- **Button A:** Primary Fire
+- **Joystick Center:** Toggle AI Autopilot (Safety Menu)
+
+## 🔧 Installation
 1. Flash your Pico 2W with the latest MicroPython firmware.
-2. Clone this repository.
-3. Open `config.py` and update:
-   - `WIFI_SSID`: Your Wi-Fi name.
-   - `WIFI_PASSWORD`: Your Wi-Fi password.
-   - `CLOUD_SUBMIT_URL`: Your deployed GCP Function URL (Optional for online sync).
-4. Upload `main.py`, `config.py`, and `st7789py.py` to your Pico using Thonny.
-
-### 2. Google Cloud Setup (Backend - Optional)
-1. **Firestore**: 
-   - Create a Google Cloud Project and initialize Firestore in native mode.
-   - Create a collection named `highscores`.
-2. **Cloud Functions**:
-   - Create a new Python Cloud Function using the code in `backend/`.
-   - Set the Entry Point to `leaderboard_proxy`.
-   - Allow **unauthenticated invocations** for public access.
-
-## Controls
-- **Joystick**: Move ship
-- **Key A**: Fire Bullet / Select
-- **Key B**: Start Game
-- **Game Over**: Use directionals to enter initials, then Key A to submit.
-
-## License
-MIT
+2. Upload all `.py` files to the root directory.
+3. Configure Wi-Fi in `config.py` if using cloud leaderboards.
+4. Run `main.py`.
 
 ---
-
-## Agentic AI OS Integration (AnnIs Lite) 🤖
-
-If you are using the **AnnIs Lite OS**, you can install the `annis_coach` skill to allow your AI to mentor the pilot, optimize training sessions, and give you natural language reports.
-
-### Installation
-1.  Copy `integration/annis_coach.py` into your AnnIs Lite OS `/tools/` or `/integration/` directory.
-2.  AnnIs can now import this tool to interact with the game.
-
-### Features
-*   **Coach Mode**: AnnIs can call `optimize_pilot("aggressive")` to tune the game's learning parameters live.
-*   **Performance Debriefs**: Ask AnnIs *"How is the pilot doing?"* and she will read the `pilot_report.json` to give you a token-efficient summary of stats.
-*   **Nightly Training**: AnnIs can trigger training sessions during her **REM Sleep** protocol by calling `launch_training_session()`.
-
----
-
-## Technical Architecture & Walkthrough 🕹️
-
-### 🎮 1. MicroPython Game Engine
-The game uses a **State Machine** managed in the main loop of `main.py`. Rendering is handled via **Double Buffering** to the ST7789 display to ensure 60 FPS without tearing.
-
-### 🎨 2. Sprite Rendering Engine (`sprites.py`)
-Instead of managing raw hexadecimal bitmaps, the game features a custom **ASCII-to-Sprite Compiler**. 
-*   **Easy Editing**: Sprites are drawn in `sprites.py` using simple text characters (e.g., `W` for White, `R` for Red).
-*   **Animations**: The engine manages frame states (e.g., flickering engine propulsion, spinning power-ups).
-*   **Dynamic Banking**: The player ship sprite tilts left/right based on joystick input.
-*   **Transparency**: `main.py` uses `fb.blit` with a color key (`0x0000`/Black) to overlay sprites transparently onto the parallax background.
-
-### 🧠 3. Sentient Pilot AI (`ai_pilot.py`)
-A standalone **Reinforcement Learning** agent that learns to play the game on-device.
-*   **Algorithm**: Tabular Q-Learning with Reward Shaping.
-*   **State Space**: 5D state tracking (Player Pos, Enemy relative Pos, Powerup direction).
-*   **Auto-Pilot Toggle**: Managed via Joystick Center click with a pause-to-confirm safety menu.
-*   **Persistence**: Atomic saves to `soul_pilot.json` (RAM-only learning with milestone/manual commits to Flash).
-
-### ☁️ 4. AnnIs Lite OS Bridge & Persistence
-*   **Performance Digest**: On every Game Over, the game writes `pilot_report.json`—a low-token summary for Agentic AI (Gemini) analysis.
-*   **Serial Control**: Supports real-time commands via USB Serial (e.g., `AUTOPILOT ON`, `SAVE BRAIN`).
-*   **Local High Score**: Automatically saves/loads from `best_score.json` on the terminal.
-*   **GCP Integration**: Uses `urequests` to sync the top players to a Google Cloud Firestore backend.
-
-### 🔌 5. Hardware Configuration (`config.py`)
-Pre-mapped for the **Waveshare Pico-LCD-1.3**:
-*   **ST7789 Display**: Pins 10, 11, 9, 8, 12, 13.
-*   **Input Buttons**: Key A (15), Key B (17), Up (2), Down (18), Left (16), Right (20), Center (3).
-
-### ☁️ 3. Persistence & Cloud Logic
-*   **Local High Score**: Automatically saves/loads from `best_score.json` on the terminal.
-*   **GCP Integration**: Uses `urequests` to sync the top players to a Google Cloud Firestore backend.
-
-### 📖 4. Key Implementation Details
-
-#### Screen Shake (Visual Juice)
-```python
-# Intensity set in config.py
-ox = random.randint(-config.SHAKE_INTENSITY, config.SHAKE_INTENSITY)
-oy = random.randint(-config.SHAKE_INTENSITY, config.SHAKE_INTENSITY)
-display.blit(ox, oy, 240, 240, fbuf_data)
-```
-
-#### Parallax Stars
-Background stars are stored in a list with unique `speed` properties, updated every frame to create a layered scrolling effect.
-
-#### Collision Detection (AABB)
-Standard Axis-Aligned Bounding Box collision checks for bullets, enemies, and power-ups.
+*Optimized for the RP2350 architecture.*
